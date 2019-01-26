@@ -1,2 +1,2 @@
 # CoursesSearcher
-Search courses of CUNY
+Search courses from CUNY website

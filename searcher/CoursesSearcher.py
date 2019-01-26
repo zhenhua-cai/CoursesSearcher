@@ -8,12 +8,6 @@ from bs4 import Tag
 from firebase_admin import credentials
 from firebase_admin import firestore
 
-def init():
-    cred = credentials.Certificate("../resources/coursesregister-da62d-firebase-adminsdk-fedig-d66edc7893.json")
-    firebase_admin.initialize_app(cred)
-    global db
-    db = firestore.client()
-
 URL = 'https://hrsa.cunyfirst.cuny.edu/psc/cnyhcprd/GUEST/HRMS/c/COMMUNITY_ACCESS.CLASS_SEARCH.GBL?'
 headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36'}
@@ -23,7 +17,23 @@ proxies = {
 CAREER = ['GRAD', 'UGRD']
 
 
+def init():
+    """
+    initialize firebase settings
+    :return: None
+    """
+    cred = credentials.Certificate("../resources/coursesregister-da62d-firebase-adminsdk-fedig-d66edc7893.json")
+    firebase_admin.initialize_app(cred)
+    global db
+    db = firestore.client()
+
+
 def getHiddenValue(bs):
+    """
+    get hidden parameters from hidden input tag
+    :param bs: BeautifulSoup Object
+    :return: a dictionary that contains the hidden parameters
+    """
     hidden_values = {}
     div = bs.find(id='win0divPSHIDDENFIELDS')
     inputs = div.find_all('input', {'type': 'hidden'})
@@ -34,6 +44,15 @@ def getHiddenValue(bs):
 
 
 def getParam1(bs, college, icaction, term='', ):
+    """
+    get the parameters for the request to find college and term.
+    It's really hard to find an appropriate function name :(
+    :param bs: BeautifulSoup Object
+    :param college: value for the INSTITUTION parameter
+    :param icaction: value for the ICACTION parameter
+    :param term: value for the STRM parameter
+    :return: parameters for post request
+    """
     values = getHiddenValue(bs)
     values['CLASS_SRCH_WRK2_INSTITUTION$31$'] = college
     values['CLASS_SRCH_WRK2_STRM$35$'] = term
@@ -42,6 +61,16 @@ def getParam1(bs, college, icaction, term='', ):
 
 
 def get_param_for_courses(bs, college, term, career, major):
+    """
+    get the parameters for the request to search courses.
+    It's really hard to find an appropriate function name :(
+    :param bs: BeautifulSoup Object
+    :param college:value for the INSTITUTION parameter
+    :param term: value for the STRM parameter
+    :param career:value for the CAREER parameter
+    :param major: value for the SUBJECT parameter
+    :return: parameters for the post request
+    """
     values = getParam1(bs, college, 'CLASS_SRCH_WRK2_SSR_PB_CLASS_SRCH')
     values['SSR_CLSRCH_WRK_SUBJECT_SRCH$0'] = major
     values['CLASS_SRCH_WRK2_STRM$35$'] = term
@@ -50,13 +79,14 @@ def get_param_for_courses(bs, college, term, career, major):
     return values
 
 
-def savePage(page):
-    f = open('page.html', 'w')
-    f.write(page.text)
-    f.close()
-
-
-def getTerm(session, bs, college='QNS01'):
+def get_term(session, bs, college='QNS01'):
+    """
+    get term information from page
+    :param session: session object
+    :param bs: BeautifulSoup object
+    :param college: value for the INSTITUTION parameter
+    :return: list of terms
+    """
     values = getParam1(bs, college, 'CLASS_SRCH_WRK2_INSTITUTION$31$')
     page = session.post(URL, data=values, headers=headers, proxies=proxies)
     bs = BeautifulSoup(page.text, 'lxml')
@@ -67,7 +97,12 @@ def getTerm(session, bs, college='QNS01'):
     return terms
 
 
-def getCollege(bs):
+def get_college(bs):
+    """
+    get colleges information from page
+    :param bs: BeautifulSoup object
+    :return: list of colleges
+    """
     colleges_elem = bs.find(id='CLASS_SRCH_WRK2_INSTITUTION$31$').option.find_next_siblings('option')
     colleges = []
     for college in colleges_elem:
@@ -75,7 +110,15 @@ def getCollege(bs):
     return colleges
 
 
-def getMajors(session, bs, college='QNS01', term='1192'):
+def get_majors(session, bs, college='QNS01', term='1192'):
+    """
+    get majors from the page
+    :param session: session object
+    :param bs: BeautifulSoup Object
+    :param college: value for the INSTITUTION parameter
+    :param term:value for the STRM parameter
+    :return:list of majors
+    """
     values = getParam1(bs, college, icaction='CLASS_SRCH_WRK2_STRM$35$', term=term)
     page = session.post(URL, data=values, headers=headers, proxies=proxies)
     bs = BeautifulSoup(page.text, 'lxml')
@@ -87,6 +130,13 @@ def getMajors(session, bs, college='QNS01', term='1192'):
 
 
 def get_courses(bs, doc_ref):
+    """
+    parse the web page to get courses and sections
+    store info into firebase
+    :param bs: BeautifulSoup object
+    :param doc_ref: firebase document reference object
+    :return: None
+    """
     courses = bs.find(id="ACE_$ICField$4$$0").tr.find_next_siblings('tr')
     for course in courses:
         title = course.find('a', {'class': 'PSHYPERLINK PTCOLLAPSE_ARROW'}).parent
@@ -105,19 +155,24 @@ def get_courses(bs, doc_ref):
             )
 
 
-def getPage(session):
+def search_courses(session):
+    """
+    search all the courses
+    :param session: session object
+    :return:None
+    """
     page = session.get(URL)
     bs = BeautifulSoup(page.text, 'lxml')
-    colleges = getCollege(bs)
+    colleges = get_college(bs)
     for college in colleges:
-        terms = getTerm(session, bs, college)
+        terms = get_term(session, bs, college)
         for term in terms[1:]:
-            majors = getMajors(session, bs, college, term)
+            majors = get_majors(session, bs, college, term)
             for major in majors:
                 for career in CAREER:
-                    doc_ref = db.collection('colleges').document(college)\
-                        .collection('majors').document(major)\
-                        .collection('terms').document(term)\
+                    doc_ref = db.collection('colleges').document(college) \
+                        .collection('majors').document(major) \
+                        .collection('terms').document(term) \
                         .collection('career').document(career)
 
                     values = get_param_for_courses(bs, college, term, career, major)
@@ -131,9 +186,13 @@ def getPage(session):
 
 
 def main():
+    """
+    main function
+    :return: None
+    """
     init()
     session = requests.Session()
-    getPage(session)
+    search_courses(session)
 
 
 if __name__ == '__main__':

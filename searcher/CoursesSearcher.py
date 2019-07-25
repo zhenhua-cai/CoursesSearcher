@@ -22,7 +22,7 @@ def init():
     initialize firebase settings
     :return: None
     """
-    cred = credentials.Certificate("../resources/coursesregister-da62d-firebase-adminsdk-fedig-d66edc7893.json")
+    cred = credentials.Certificate("../resources/coursesregister.json")
     firebase_admin.initialize_app(cred)
     global db
     db = firestore.client()
